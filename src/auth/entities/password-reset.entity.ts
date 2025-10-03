@@ -1,4 +1,3 @@
-// src/auth/entities/password-reset.entity.ts
 import {
   Entity,
   PrimaryGeneratedColumn,

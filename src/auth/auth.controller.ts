@@ -1,6 +1,4 @@
-// ==============================================
-// FILE: src/auth/auth.controller.ts (UPDATED)
-// ==============================================
+
 import {
   Controller,
   Post,

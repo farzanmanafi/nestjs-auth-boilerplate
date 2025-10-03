@@ -1,4 +1,3 @@
-// src/auth/entities/two-factor-auth.entity.ts
 import {
   Entity,
   PrimaryGeneratedColumn,
