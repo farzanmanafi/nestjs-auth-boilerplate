@@ -1,4 +1,3 @@
-
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -27,11 +26,12 @@ import { AppController } from './app.controller';
       load: [databaseConfig, jwtConfig, emailConfig],
       envFilePath: ['.env.local', '.env'],
     }),
-    
+
     // Database
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => configService.get('database'),
+      useFactory: (configService: ConfigService) =>
+        configService.get('database'),
       inject: [ConfigService],
     }),
 
@@ -44,11 +44,11 @@ import { AppController } from './app.controller';
   providers: [
     AppService,
     {
-      provide: APP_FILTER,
+      provide: APP_FILTER, // Filter = catches errors globally (standard error response).
       useClass: HttpExceptionFilter,
     },
     {
-      provide: APP_INTERCEPTOR,
+      provide: APP_INTERCEPTOR, // Interceptor = wraps requests globally (logging, timing, or changing responses).
       useClass: LoggingInterceptor,
     },
   ],
