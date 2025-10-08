@@ -25,6 +25,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { GetUser } from './decorators/get-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { SignUpDec } from './decorators/signup.decorator';
+import { SigninDec } from './decorators/signin.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -42,9 +43,13 @@ export class AuthController {
     return this.authService.signUp(signUpDto);
   }
 
+  /**
+   * Signs in an existing user.
+   * @param {SignInDto} signInDto - Credentials of the user to be signed in.
+   * @returns {Promise<AuthResponse>} - User signed in successfully with tokens.
+   */
   @Post('signin')
-  @ApiOperation({ summary: 'User login' })
-  @HttpCode(HttpStatus.OK)
+  @SigninDec()
   async signIn(@Body() signInDto: SignInDto) {
     return this.authService.signIn(signInDto);
   }
