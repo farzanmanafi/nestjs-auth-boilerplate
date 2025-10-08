@@ -1,4 +1,3 @@
-
 import {
   Injectable,
   UnauthorizedException,
@@ -23,13 +22,13 @@ import { SignUpDto } from './dto/signup.dto';
 import { SignInDto } from './dto/signin.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { EmailService } from '../email/email.service';
-import { 
-  AuthResponse, 
-  AuthTokens, 
-  UserProfile, 
+import {
+  AuthResponse,
+  AuthTokens,
+  UserProfile,
   TwoFactorSetupResponse,
   SSOProfile,
-  SessionInfo 
+  SessionInfo,
 } from '../common/types/auth.types';
 
 @Injectable()
@@ -55,13 +54,15 @@ export class AuthService {
     const { email, password, firstName, lastName } = signUpDto;
 
     // Check if user already exists
-    const existingUser = await this.userRepository.findOne({ where: { email } });
+    const existingUser = await this.userRepository.findOne({
+      where: { email },
+    });
     if (existingUser) {
       throw new ConflictException('User already exists');
     }
 
     // Hash password
-    const saltRounds = this.configService.get('BCRYPT_ROUNDS', 12);
+    const saltRounds = Number(this.configService.get('BCRYPT_ROUNDS', 12));
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     // Create user
@@ -144,7 +145,10 @@ export class AuthService {
     return { accessToken };
   }
 
-  async logout(userId: string, refreshToken: string): Promise<{ message: string }> {
+  async logout(
+    userId: string,
+    refreshToken: string,
+  ): Promise<{ message: string }> {
     await this.refreshTokenRepository.delete({ userId, token: refreshToken });
     return { message: 'Logged out successfully' };
   }
@@ -154,7 +158,7 @@ export class AuthService {
   // ==========================================
   async forgotPassword(email: string): Promise<{ message: string }> {
     const user = await this.userRepository.findOne({ where: { email } });
-    
+
     if (!user) {
       // Don't reveal if email exists
       return { message: 'If email exists, reset link has been sent' };
@@ -163,7 +167,10 @@ export class AuthService {
     // Create reset token
     const resetToken = uuid();
     const expiresAt = new Date();
-    const expiresInMs = this.configService.get('PASSWORD_RESET_EXPIRES_IN', 3600000); // 1 hour
+    const expiresInMs = this.configService.get(
+      'PASSWORD_RESET_EXPIRES_IN',
+      3600000,
+    ); // 1 hour
     expiresAt.setTime(expiresAt.getTime() + expiresInMs);
 
     const passwordReset = this.passwordResetRepository.create({
@@ -180,7 +187,9 @@ export class AuthService {
     return { message: 'If email exists, reset link has been sent' };
   }
 
-  async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<{ message: string }> {
+  async resetPassword(
+    resetPasswordDto: ResetPasswordDto,
+  ): Promise<{ message: string }> {
     const { token, newPassword } = resetPasswordDto;
 
     const passwordReset = await this.passwordResetRepository.findOne({
@@ -223,8 +232,10 @@ export class AuthService {
     });
 
     // Save secret (not enabled yet)
-    let twoFactorAuth = await this.twoFactorRepository.findOne({ where: { userId } });
-    
+    let twoFactorAuth = await this.twoFactorRepository.findOne({
+      where: { userId },
+    });
+
     if (!twoFactorAuth) {
       twoFactorAuth = this.twoFactorRepository.create({
         userId,
@@ -247,9 +258,14 @@ export class AuthService {
     };
   }
 
-  async verifyTwoFactor(userId: string, token: string): Promise<{ message: string }> {
-    const twoFactorAuth = await this.twoFactorRepository.findOne({ where: { userId } });
-    
+  async verifyTwoFactor(
+    userId: string,
+    token: string,
+  ): Promise<{ message: string }> {
+    const twoFactorAuth = await this.twoFactorRepository.findOne({
+      where: { userId },
+    });
+
     if (!twoFactorAuth) {
       throw new BadRequestException('Two-factor authentication not set up');
     }
@@ -309,9 +325,14 @@ export class AuthService {
     };
   }
 
-  async disableTwoFactor(userId: string, token: string): Promise<{ message: string }> {
-    const twoFactorAuth = await this.twoFactorRepository.findOne({ where: { userId } });
-    
+  async disableTwoFactor(
+    userId: string,
+    token: string,
+  ): Promise<{ message: string }> {
+    const twoFactorAuth = await this.twoFactorRepository.findOne({
+      where: { userId },
+    });
+
     if (!twoFactorAuth || !twoFactorAuth.isEnabled) {
       throw new BadRequestException('Two-factor authentication not enabled');
     }
@@ -343,9 +364,12 @@ export class AuthService {
     return this.handleSSOCallback(profile, 'google');
   }
 
-private async handleSSOCallback(profile: SSOProfile, provider: string): Promise<AuthResponse> {
+  private async handleSSOCallback(
+    profile: SSOProfile,
+    provider: string,
+  ): Promise<AuthResponse> {
     const email = profile.email;
-    
+
     let user = await this.userRepository.findOne({ where: { email } });
 
     if (!user) {
@@ -411,7 +435,7 @@ private async handleSSOCallback(profile: SSOProfile, provider: string): Promise<
       order: { createdAt: 'DESC' },
     });
 
-    return sessions.map(session => ({
+    return sessions.map((session) => ({
       id: session.id,
       userId: session.userId,
       userAgent: session.userAgent,
@@ -422,7 +446,10 @@ private async handleSSOCallback(profile: SSOProfile, provider: string): Promise<
     }));
   }
 
-  async revokeSession(userId: string, sessionId: string): Promise<{ message: string }> {
+  async revokeSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<{ message: string }> {
     await this.refreshTokenRepository.delete({ id: sessionId, userId });
     return { message: 'Session revoked successfully' };
   }
@@ -437,13 +464,16 @@ private async handleSSOCallback(profile: SSOProfile, provider: string): Promise<
     const refreshToken = uuid();
 
     // Calculate expiration
-    const refreshExpiresIn = this.configService.get('jwt.refreshExpiresIn', '7d');
+    const refreshExpiresIn = this.configService.get(
+      'jwt.refreshExpiresIn',
+      '7d',
+    );
     const expiresAt = new Date();
-    
+
     // Parse expiration string (e.g., "7d", "24h", "30m")
     const timeValue = parseInt(refreshExpiresIn);
     const timeUnit = refreshExpiresIn.replace(timeValue.toString(), '');
-    
+
     switch (timeUnit) {
       case 'd':
         expiresAt.setDate(expiresAt.getDate() + timeValue);
@@ -484,7 +514,9 @@ private async handleSSOCallback(profile: SSOProfile, provider: string): Promise<
   }
 
   async validateUser(payload: any): Promise<User> {
-    const user = await this.userRepository.findOne({ where: { id: payload.sub } });
+    const user = await this.userRepository.findOne({
+      where: { id: payload.sub },
+    });
     if (!user) {
       throw new UnauthorizedException('User not found');
     }

@@ -1,6 +1,5 @@
-
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
@@ -20,6 +19,19 @@ async function bootstrap() {
     }),
   );
 
+  app.setGlobalPrefix('api/v1', {
+    exclude: ['/', 'health', 'status'],
+  });
+  app.setGlobalPrefix('api/v1', {
+    exclude: [
+      '/',
+      'health',
+      'status',
+      // Exclude all auth routes so they stay under /auth/...
+      { path: 'auth', method: RequestMethod.ALL },
+    ],
+  });
+
   // CORS
   app.enableCors({
     origin: [
@@ -31,13 +43,19 @@ async function bootstrap() {
   });
 
   // Rate limiting middleware
-  app.use(new RateLimitMiddleware(configService).use.bind(new RateLimitMiddleware(configService)));
+  app.use(
+    new RateLimitMiddleware(configService).use.bind(
+      new RateLimitMiddleware(configService),
+    ),
+  );
 
   // Swagger documentation
   if (configService.get('NODE_ENV') !== 'production') {
     const config = new DocumentBuilder()
       .setTitle('NestJS Auth Boilerplate')
-      .setDescription('Complete authentication API with JWT, 2FA, SSO, and more')
+      .setDescription(
+        'Complete authentication API with JWT, 2FA, SSO, and more',
+      )
       .setVersion('1.0.0')
       .addBearerAuth(
         {
