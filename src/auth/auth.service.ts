@@ -50,6 +50,13 @@ export class AuthService {
   // ==========================================
   // BASIC AUTH OPERATIONS
   // ==========================================
+
+  /**
+   * SignUp a new user.
+   * @param {SignUpDto} signUpDto - SignUp data transfer object.
+   * @returns {Promise<AuthResponse>} - Promise resolving with AuthResponse object containing user and tokens.
+   * @throws {ConflictException} - If user already exists.
+   */
   async signUp(signUpDto: SignUpDto): Promise<AuthResponse> {
     const { email, password, firstName, lastName } = signUpDto;
 
@@ -457,17 +464,29 @@ export class AuthService {
   // ==========================================
   // UTILITY METHODS
   // ==========================================
-  private async generateTokens(user: User): Promise<AuthTokens> {
-    const payload = { sub: user.id, email: user.email };
 
+  /**
+   * Generates access and refresh tokens for a given user.
+   * @param user The user entity to generate tokens for.
+   * @returns A promise containing the access and refresh tokens.
+   */
+  private async generateTokens(user: User): Promise<AuthTokens> {
+    // 1. Create payload with user info
+    const payload = { sub: user.id, email: user.email }; // "sub" = subject (standard JWT claim)
+
+    // 2. Sign(create) ACCESS TOKEN (short-lived: 15 minutes)
     const accessToken = this.jwtService.sign(payload);
+
+    // 3. Generate REFRESH TOKEN (long-lived: 7 days)
     const refreshToken = uuid();
 
-    // Calculate expiration
+    // Calculate expiration(Reads how long the refresh token should last — default 7 days if not set.)
     const refreshExpiresIn = this.configService.get(
       'jwt.refreshExpiresIn',
       '7d',
     );
+
+    //Creates a Date object to calculate when the refresh token expires.
     const expiresAt = new Date();
 
     // Parse expiration string (e.g., "7d", "24h", "30m")
@@ -500,6 +519,11 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
+  /**
+   * Maps a User entity to a UserProfile object.
+   * @param user The User entity to map.
+   * @returns A UserProfile object containing user information.
+   */
   private mapUserToProfile(user: User): UserProfile {
     return {
       id: user.id,
