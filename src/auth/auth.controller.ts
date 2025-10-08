@@ -1,4 +1,3 @@
-
 import {
   Controller,
   Post,
@@ -25,15 +24,20 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { GetUser } from './decorators/get-user.decorator';
 import { User } from '../users/entities/user.entity';
+import { SignUpDec } from './decorators/signup.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  /**
+   * Signs up a new user.
+   * @param {SignUpDto} signUpDto - Details of the user to be signed up.
+   * @returns {Promise<AuthResponse>} - User signed up successfully with tokens.
+   */
   @Post('signup')
-  @ApiOperation({ summary: 'User registration' })
-  @HttpCode(HttpStatus.CREATED)
+  @SignUpDec()
   async signUp(@Body() signUpDto: SignUpDto) {
     return this.authService.signUp(signUpDto);
   }
@@ -105,15 +109,24 @@ export class AuthController {
 
   @Post('2fa/authenticate')
   @ApiOperation({ summary: 'Authenticate with two-factor code' })
-  async authenticateWithTwoFactor(@Body() body: { email: string; password: string; token: string }) {
-    return this.authService.authenticateWithTwoFactor(body.email, body.password, body.token);
+  async authenticateWithTwoFactor(
+    @Body() body: { email: string; password: string; token: string },
+  ) {
+    return this.authService.authenticateWithTwoFactor(
+      body.email,
+      body.password,
+      body.token,
+    );
   }
 
   @Post('2fa/disable')
   @ApiOperation({ summary: 'Disable two-factor authentication' })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  async disableTwoFactor(@GetUser() user: User, @Body() body: { token: string }) {
+  async disableTwoFactor(
+    @GetUser() user: User,
+    @Body() body: { token: string },
+  ) {
     return this.authService.disableTwoFactor(user.id, body.token);
   }
 
@@ -132,7 +145,9 @@ export class AuthController {
   @UseGuards(AuthGuard('auth0'))
   async auth0Callback(@Req() req: Request, @Res() res: Response) {
     const result = await this.authService.handleAuth0Callback(req.user as any);
-    res.redirect(`${process.env.FRONTEND_URL}/auth/success?token=${result.tokens.accessToken}`);
+    res.redirect(
+      `${process.env.FRONTEND_URL}/auth/success?token=${result.tokens.accessToken}`,
+    );
   }
 
   // ==========================================
@@ -150,7 +165,9 @@ export class AuthController {
   @UseGuards(AuthGuard('google'))
   async googleCallback(@Req() req: Request, @Res() res: Response) {
     const result = await this.authService.handleGoogleCallback(req.user as any);
-    res.redirect(`${process.env.FRONTEND_URL}/auth/success?token=${result.tokens.accessToken}`);
+    res.redirect(
+      `${process.env.FRONTEND_URL}/auth/success?token=${result.tokens.accessToken}`,
+    );
   }
 
   // ==========================================
@@ -176,7 +193,10 @@ export class AuthController {
   @ApiOperation({ summary: 'Revoke session' })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  async revokeSession(@GetUser() user: User, @Body() body: { sessionId: string }) {
+  async revokeSession(
+    @GetUser() user: User,
+    @Body() body: { sessionId: string },
+  ) {
     return this.authService.revokeSession(user.id, body.sessionId);
   }
 }
