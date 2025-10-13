@@ -135,20 +135,24 @@ export class AuthService {
   }
 
   async refreshToken(refreshToken: string): Promise<{ accessToken: string }> {
+    // 1. Find refresh token in database
     const tokenEntity = await this.refreshTokenRepository.findOne({
       where: { token: refreshToken },
       relations: ['user'],
     });
 
+    // 2. Check if token exists and hasn't expired
     if (!tokenEntity || tokenEntity.expiresAt < new Date()) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
+    // 3. Generate NEW access token
     const accessToken = this.jwtService.sign({
       sub: tokenEntity.user.id,
       email: tokenEntity.user.email,
     });
 
+    // 4. Return new access token
     return { accessToken };
   }
 
@@ -156,6 +160,7 @@ export class AuthService {
     userId: string,
     refreshToken: string,
   ): Promise<{ message: string }> {
+    // Delete refresh token from database
     await this.refreshTokenRepository.delete({ userId, token: refreshToken });
     return { message: 'Logged out successfully' };
   }

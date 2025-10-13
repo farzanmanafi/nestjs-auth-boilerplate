@@ -26,6 +26,7 @@ import { GetUser } from './decorators/get-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { SignUpDec } from './decorators/signup.decorator';
 import { SigninDec } from './decorators/signin.decorator';
+import { RefreshDec } from './decorators/refresh-token.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -54,9 +55,13 @@ export class AuthController {
     return this.authService.signIn(signInDto);
   }
 
+  /**
+   * Refreshes an access token with a given refresh token.
+   * @param refreshTokenDto - Refresh token to be used to generate a new access token.
+   * @returns {Promise<AuthResponse>} - New access token generated successfully with refresh token.
+   */
   @Post('refresh')
-  @ApiOperation({ summary: 'Refresh access token' })
-  @HttpCode(HttpStatus.OK)
+  @RefreshDec()
   async refreshToken(@Body() refreshTokenDto: RefreshTokenDto) {
     return this.authService.refreshToken(refreshTokenDto.refreshToken);
   }
