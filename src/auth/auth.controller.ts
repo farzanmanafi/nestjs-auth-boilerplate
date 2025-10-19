@@ -27,6 +27,7 @@ import { User } from '../users/entities/user.entity';
 import { SignUpDec } from './decorators/signup.decorator';
 import { SigninDec } from './decorators/signin.decorator';
 import { RefreshDec } from './decorators/refresh-token.decorator';
+import { LogoutDec } from './decorators/logout.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -67,10 +68,8 @@ export class AuthController {
   }
 
   @Post('logout')
-  @ApiOperation({ summary: 'User logout' })
   @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
-  @HttpCode(HttpStatus.OK)
+  @LogoutDec()
   async logout(@GetUser() user: User, @Body() body: { refreshToken: string }) {
     return this.authService.logout(user.id, body.refreshToken);
   }
