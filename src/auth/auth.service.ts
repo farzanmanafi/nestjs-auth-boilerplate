@@ -99,6 +99,14 @@ export class AuthService {
     };
   }
 
+  /**
+   * Signs in a user
+   *
+   * @param {SignInDto} signInDto - signin request
+   * @returns {Promise<AuthResponse>} - user profile and tokens
+   * @throws {UnauthorizedException} - if invalid credentials
+   * @throws {UnauthorizedException} - if account is deactivated
+   */
   async signIn(signInDto: SignInDto): Promise<AuthResponse> {
     const { email, password } = signInDto;
 
@@ -134,6 +142,13 @@ export class AuthService {
     };
   }
 
+  /**
+   * Log out user by deleting the refresh token associated with their user.
+   *
+   * @param refreshToken - The refresh token to delete.
+   * @returns A promise that resolves to an object with a single property 'message' that contains a success message.
+   * @throws {UnauthorizedException} - If the refresh token is invalid or has expired.
+   */
   async refreshToken(refreshToken: string): Promise<{ accessToken: string }> {
     // 1. Find refresh token in database
     const tokenEntity = await this.refreshTokenRepository.findOne({
@@ -156,6 +171,11 @@ export class AuthService {
     return { accessToken };
   }
 
+  /**
+   * Log out user by deleting the refresh token associated with their user.
+   * @param refreshToken - The refresh token to delete.
+   * @returns A promise that resolves to an object with a single property 'message' that contains a success message.
+   */
   async logout(refreshToken: string): Promise<{ message: string }> {
     // Find and delete the refresh token
     const result = await this.refreshTokenRepository.delete({
@@ -174,6 +194,13 @@ export class AuthService {
   // ==========================================
   // PASSWORD RESET
   // ==========================================
+
+  /**
+   * Forgot password.
+   * If email exists, a reset link will be sent to the email address.
+   * @param {string} email - Email address to send the reset link to.
+   * @returns {Promise<{ message: string }>} - Promise resolving with success message.
+   */
   async forgotPassword(email: string): Promise<{ message: string }> {
     const user = await this.userRepository.findOne({ where: { email } });
 
@@ -185,9 +212,8 @@ export class AuthService {
     // Create reset token
     const resetToken = uuid();
     const expiresAt = new Date();
-    const expiresInMs = this.configService.get(
-      'PASSWORD_RESET_EXPIRES_IN',
-      3600000,
+    const expiresInMs = Number(
+      this.configService.get('PASSWORD_RESET_EXPIRES_IN', 3600000),
     ); // 1 hour
     expiresAt.setTime(expiresAt.getTime() + expiresInMs);
 
@@ -205,6 +231,12 @@ export class AuthService {
     return { message: 'If email exists, reset link has been sent' };
   }
 
+  /**
+   * Resets user password.
+   * @param {ResetPasswordDto} resetPasswordDto - Reset password data transfer object.
+   * @returns {Promise<{ message: string }>} - Promise resolving with success message.
+   * @throws {BadRequestException} - If reset token is invalid or expired.
+   */
   async resetPassword(
     resetPasswordDto: ResetPasswordDto,
   ): Promise<{ message: string }> {
@@ -420,6 +452,13 @@ export class AuthService {
   // ==========================================
   // EMAIL VERIFICATION
   // ==========================================
+
+  /**
+   * Verify email address.
+   * @param {string} token - Email verification token.
+   * @returns {Promise<{ message: string }>} - Promise resolving with object containing success message.
+   * @throws {BadRequestException} - If verification token is invalid.
+   */
   async verifyEmail(token: string): Promise<{ message: string }> {
     const user = await this.userRepository.findOne({
       where: { emailVerificationToken: token },

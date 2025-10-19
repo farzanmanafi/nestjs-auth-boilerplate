@@ -28,6 +28,9 @@ import { SignUpDec } from './decorators/signup.decorator';
 import { SigninDec } from './decorators/signin.decorator';
 import { RefreshDec } from './decorators/refresh-token.decorator';
 import { LogoutDec } from './decorators/logout.decorator';
+import { ForgetPasswordDec } from './decorators/forget-password.decorator';
+import { ResetPasswordDec } from './decorators/reset-passworf.decorator';
+import { VerifyEmailDec } from './decorators/verify-email.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -67,6 +70,12 @@ export class AuthController {
     return this.authService.refreshToken(refreshTokenDto.refreshToken);
   }
 
+  /**
+   * Log out user by deleting the refresh token associated with their user.
+   * This endpoint can be called by anyone, as the refresh token itself is the proof of identity.
+   * @param body.refreshToken - The refresh token to be deleted.
+   * @returns {Promise<{ message: string }>} - Promise resolving with success message.
+   */
   @Post('logout')
   @LogoutDec()
   async logout(@Body() body: { refreshToken: string }) {
@@ -75,22 +84,36 @@ export class AuthController {
     return this.authService.logout(body.refreshToken);
   }
 
+  /**
+   * Forgot password.
+   * Sends a password reset link to the user's email address if email exists.
+   * @param {ForgotPasswordDto} forgotPasswordDto - Forgot password data transfer object.
+   * @returns {Promise<{ message: string }>} - Promise resolving with success message if email exists.
+   */
   @Post('forgot-password')
-  @ApiOperation({ summary: 'Request password reset' })
-  @HttpCode(HttpStatus.OK)
+  @ForgetPasswordDec()
   async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
     return this.authService.forgotPassword(forgotPasswordDto.email);
   }
 
+  /**
+   * Resets a user's password.
+   * @param {ResetPasswordDto} resetPasswordDto - Reset password data transfer object.
+   * @returns {Promise<void>} - Promise resolving when the password has been reset successfully.
+   */
   @Post('reset-password')
-  @ApiOperation({ summary: 'Reset password with token' })
-  @HttpCode(HttpStatus.OK)
+  @ResetPasswordDec()
   async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
     return this.authService.resetPassword(resetPasswordDto);
   }
 
+  /**
+   * Verify email address using a given token.
+   * @param token - Verification token received in the email.
+   * @returns {Promise<void>} - Promise resolving when the email address is verified.
+   */
   @Get('verify-email')
-  @ApiOperation({ summary: 'Verify email address' })
+  @VerifyEmailDec()
   async verifyEmail(@Query('token') token: string) {
     return this.authService.verifyEmail(token);
   }
