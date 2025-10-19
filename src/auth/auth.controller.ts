@@ -68,10 +68,11 @@ export class AuthController {
   }
 
   @Post('logout')
-  @UseGuards(JwtAuthGuard)
   @LogoutDec()
-  async logout(@GetUser() user: User, @Body() body: { refreshToken: string }) {
-    return this.authService.logout(user.id, body.refreshToken);
+  async logout(@Body() body: { refreshToken: string }) {
+    // No @UseGuards - anyone can call this
+    // The refresh token itself is the proof of identity
+    return this.authService.logout(body.refreshToken);
   }
 
   @Post('forgot-password')

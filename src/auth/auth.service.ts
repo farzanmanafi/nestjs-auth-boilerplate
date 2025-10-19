@@ -156,12 +156,18 @@ export class AuthService {
     return { accessToken };
   }
 
-  async logout(
-    userId: string,
-    refreshToken: string,
-  ): Promise<{ message: string }> {
-    // Delete refresh token from database
-    await this.refreshTokenRepository.delete({ userId, token: refreshToken });
+  async logout(refreshToken: string): Promise<{ message: string }> {
+    // Find and delete the refresh token
+    const result = await this.refreshTokenRepository.delete({
+      token: refreshToken,
+    });
+
+    if (result.affected === 0) {
+      // Token doesn't exist - might be already logged out
+      // Don't throw error, just return success
+      return { message: 'Already logged out' };
+    }
+
     return { message: 'Logged out successfully' };
   }
 
