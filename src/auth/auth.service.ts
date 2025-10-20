@@ -252,7 +252,7 @@ export class AuthService {
     }
 
     // Hash new password
-    const saltRounds = this.configService.get('BCRYPT_ROUNDS', 12);
+    const saltRounds = Number(this.configService.get('BCRYPT_ROUNDS', 12));
     const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
 
     // Update user password
@@ -269,6 +269,7 @@ export class AuthService {
   // ==========================================
   // TWO-FACTOR AUTHENTICATION
   // ==========================================
+
   async setupTwoFactor(userId: string): Promise<TwoFactorSetupResponse> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) {
