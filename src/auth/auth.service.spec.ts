@@ -8,6 +8,7 @@ import {
   ConflictException,
   UnauthorizedException,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import * as speakeasy from 'speakeasy';
@@ -567,7 +568,480 @@ describe('AuthService', () => {
     });
   });
 
+  describe('setupTwoFactor', () => {
+    it('should successfully setup two-factor authentication', async () => {
+      const userId = 'user-id';
+      const secret = {
+        base32: 'test-secret-base32',
+        otpauth_url:
+          'otpauth://totp/Test%20App:test@example.com?secret=test-secret',
+      };
+      const qrCodeData = 'data:image/png;base64,qrcode';
+
+      jest.spyOn(userRepository, 'findOne').mockResolvedValue(mockUser);
+      jest.spyOn(twoFactorRepository, 'findOne').mockResolvedValue(null);
+      jest.spyOn(twoFactorRepository, 'create').mockReturnValue({
+        userId,
+        secret: secret.base32,
+        isEnabled: false,
+      } as TwoFactorAuth);
+      jest.spyOn(twoFactorRepository, 'save').mockResolvedValue({
+        userId,
+        secret: secret.base32,
+        isEnabled: false,
+      } as TwoFactorAuth);
+      (speakeasy.generateSecret as jest.Mock).mockReturnValue(secret);
+      (qrcode.toDataURL as jest.Mock).mockResolvedValue(qrCodeData);
+
+      const result = await authService.setupTwoFactor(userId);
+
+      expect(result).toEqual({
+        qrCode: qrCodeData,
+        secret: secret.base32,
+      });
+      expect(speakeasy.generateSecret).toHaveBeenCalledWith({
+        name: `Test App (${mockUser.email})`,
+        issuer: 'Test App',
+      });
+      expect(qrcode.toDataURL).toHaveBeenCalledWith(secret.otpauth_url);
+    });
+
+    it('should update existing two-factor setup', async () => {
+      const userId = 'user-id';
+      const existingTwoFactor: TwoFactorAuth = {
+        id: '2fa-id',
+        userId,
+        secret: 'old-secret',
+        isEnabled: true,
+        user: mockUser,
+      };
+      const newSecret = {
+        base32: 'new-secret-base32',
+        otpauth_url:
+          'otpauth://totp/Test%20App:test@example.com?secret=new-secret',
+      };
+      const qrCodeData = 'data:image/png;base64,newqrcode';
+
+      jest.spyOn(userRepository, 'findOne').mockResolvedValue(mockUser);
+      jest
+        .spyOn(twoFactorRepository, 'findOne')
+        .mockResolvedValue(existingTwoFactor);
+      jest.spyOn(twoFactorRepository, 'save').mockResolvedValue({
+        ...existingTwoFactor,
+        secret: newSecret.base32,
+        isEnabled: false,
+      });
+      (speakeasy.generateSecret as jest.Mock).mockReturnValue(newSecret);
+      (qrcode.toDataURL as jest.Mock).mockResolvedValue(qrCodeData);
+
+      const result = await authService.setupTwoFactor(userId);
+
+      expect(result).toEqual({
+        qrCode: qrCodeData,
+        secret: newSecret.base32,
+      });
+      expect(existingTwoFactor.secret).toBe(newSecret.base32);
+      expect(existingTwoFactor.isEnabled).toBe(false);
+    });
+
+    it('should throw NotFoundException if user not found', async () => {
+      jest.spyOn(userRepository, 'findOne').mockResolvedValue(null);
+
+      await expect(
+        authService.setupTwoFactor('invalid-user-id'),
+      ).rejects.toThrow(NotFoundException);
+      expect(twoFactorRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('verifyTwoFactor', () => {
+    const userId = 'user-id';
+    const validToken = '123456';
+
+    it('should successfully verify and enable two-factor authentication', async () => {
+      const twoFactorAuth: TwoFactorAuth = {
+        id: '2fa-id',
+        userId,
+        secret: 'test-secret',
+        isEnabled: false,
+        user: mockUser,
+      };
+
+      jest
+        .spyOn(twoFactorRepository, 'findOne')
+        .mockResolvedValue(twoFactorAuth);
+      jest.spyOn(twoFactorRepository, 'save').mockResolvedValue({
+        ...twoFactorAuth,
+        isEnabled: true,
+      });
+      (speakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+
+      const result = await authService.verifyTwoFactor(userId, validToken);
+
+      expect(result).toEqual({
+        message: 'Two-factor authentication enabled successfully',
+      });
+      expect(speakeasy.totp.verify).toHaveBeenCalledWith({
+        secret: twoFactorAuth.secret,
+        encoding: 'base32',
+        token: validToken,
+        window: 1,
+      });
+      expect(twoFactorAuth.isEnabled).toBe(true);
+      expect(twoFactorRepository.save).toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException if two-factor not set up', async () => {
+      jest.spyOn(twoFactorRepository, 'findOne').mockResolvedValue(null);
+
+      await expect(
+        authService.verifyTwoFactor(userId, validToken),
+      ).rejects.toThrow(
+        new BadRequestException('Two-factor authentication not set up'),
+      );
+      expect(speakeasy.totp.verify).not.toHaveBeenCalled();
+    });
+
+    it('should throw UnauthorizedException for invalid token', async () => {
+      const twoFactorAuth: TwoFactorAuth = {
+        id: '2fa-id',
+        userId,
+        secret: 'test-secret',
+        isEnabled: false,
+        user: mockUser,
+      };
+
+      jest
+        .spyOn(twoFactorRepository, 'findOne')
+        .mockResolvedValue(twoFactorAuth);
+      (speakeasy.totp.verify as jest.Mock).mockReturnValue(false);
+
+      await expect(
+        authService.verifyTwoFactor(userId, 'invalid-token'),
+      ).rejects.toThrow(new UnauthorizedException('Invalid two-factor token'));
+      expect(twoFactorRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('authenticateWithTwoFactor', () => {
+    const email = 'test@example.com';
+    const password = 'Password123!';
+    const validToken = '123456';
+
+    it('should successfully authenticate with two-factor token', async () => {
+      const userWith2FA = {
+        ...mockUser,
+        twoFactorAuth: {
+          id: '2fa-id',
+          userId: mockUser.id,
+          secret: 'test-secret',
+          isEnabled: true,
+          user: mockUser,
+        },
+      };
+
+      jest
+        .spyOn(userRepository, 'findOne')
+        .mockResolvedValue(userWith2FA as User);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (speakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+      jest
+        .spyOn(refreshTokenRepository, 'create')
+        .mockReturnValue(mockRefreshToken);
+      jest
+        .spyOn(refreshTokenRepository, 'save')
+        .mockResolvedValue(mockRefreshToken);
+
+      const result = await authService.authenticateWithTwoFactor(
+        email,
+        password,
+        validToken,
+      );
+
+      expect(result).toBeDefined();
+      expect(result.user.email).toBe(email);
+      expect(result.tokens.accessToken).toBe('access-token');
+      expect(result.tokens.refreshToken).toBe('test-uuid');
+      expect(speakeasy.totp.verify).toHaveBeenCalledWith({
+        secret: userWith2FA.twoFactorAuth.secret,
+        encoding: 'base32',
+        token: validToken,
+        window: 1,
+      });
+    });
+
+    it('should throw UnauthorizedException for invalid credentials', async () => {
+      jest.spyOn(userRepository, 'findOne').mockResolvedValue(mockUser);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        authService.authenticateWithTwoFactor(
+          email,
+          'wrong-password',
+          validToken,
+        ),
+      ).rejects.toThrow(new UnauthorizedException('Invalid credentials'));
+      expect(speakeasy.totp.verify).not.toHaveBeenCalled();
+    });
+
+    it('should throw UnauthorizedException if user not found', async () => {
+      jest.spyOn(userRepository, 'findOne').mockResolvedValue(null);
+
+      await expect(
+        authService.authenticateWithTwoFactor(
+          'nonexistent@example.com',
+          password,
+          validToken,
+        ),
+      ).rejects.toThrow(new UnauthorizedException('Invalid credentials'));
+    });
+
+    it('should throw BadRequestException if two-factor not enabled', async () => {
+      jest.spyOn(userRepository, 'findOne').mockResolvedValue(mockUser);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+      await expect(
+        authService.authenticateWithTwoFactor(email, password, validToken),
+      ).rejects.toThrow(
+        new BadRequestException('Two-factor authentication not enabled'),
+      );
+    });
+
+    it('should throw UnauthorizedException for invalid two-factor token', async () => {
+      const userWith2FA = {
+        ...mockUser,
+        twoFactorAuth: {
+          id: '2fa-id',
+          userId: mockUser.id,
+          secret: 'test-secret',
+          isEnabled: true,
+          user: mockUser,
+        },
+      };
+
+      jest
+        .spyOn(userRepository, 'findOne')
+        .mockResolvedValue(userWith2FA as User);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (speakeasy.totp.verify as jest.Mock).mockReturnValue(false);
+
+      await expect(
+        authService.authenticateWithTwoFactor(email, password, 'invalid-token'),
+      ).rejects.toThrow(new UnauthorizedException('Invalid two-factor token'));
+      expect(refreshTokenRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('disableTwoFactor', () => {
+    const userId = 'user-id';
+    const validToken = '123456';
+
+    it('should successfully disable two-factor authentication', async () => {
+      const twoFactorAuth: TwoFactorAuth = {
+        id: '2fa-id',
+        userId,
+        secret: 'test-secret',
+        isEnabled: true,
+        user: mockUser,
+      };
+
+      jest
+        .spyOn(twoFactorRepository, 'findOne')
+        .mockResolvedValue(twoFactorAuth);
+      jest
+        .spyOn(twoFactorRepository, 'delete')
+        .mockResolvedValue({ affected: 1 } as any);
+      (speakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+
+      const result = await authService.disableTwoFactor(userId, validToken);
+
+      expect(result).toEqual({
+        message: 'Two-factor authentication disabled successfully',
+      });
+      expect(speakeasy.totp.verify).toHaveBeenCalledWith({
+        secret: twoFactorAuth.secret,
+        encoding: 'base32',
+        token: validToken,
+        window: 1,
+      });
+      expect(twoFactorRepository.delete).toHaveBeenCalledWith({ userId });
+    });
+
+    it('should throw BadRequestException if two-factor not enabled', async () => {
+      jest.spyOn(twoFactorRepository, 'findOne').mockResolvedValue(null);
+
+      await expect(
+        authService.disableTwoFactor(userId, validToken),
+      ).rejects.toThrow(
+        new BadRequestException('Two-factor authentication not enabled'),
+      );
+      expect(twoFactorRepository.delete).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException if two-factor exists but not enabled', async () => {
+      const twoFactorAuth: TwoFactorAuth = {
+        id: '2fa-id',
+        userId,
+        secret: 'test-secret',
+        isEnabled: false,
+        user: mockUser,
+      };
+
+      jest
+        .spyOn(twoFactorRepository, 'findOne')
+        .mockResolvedValue(twoFactorAuth);
+
+      await expect(
+        authService.disableTwoFactor(userId, validToken),
+      ).rejects.toThrow(
+        new BadRequestException('Two-factor authentication not enabled'),
+      );
+      expect(twoFactorRepository.delete).not.toHaveBeenCalled();
+    });
+
+    it('should throw UnauthorizedException for invalid token', async () => {
+      const twoFactorAuth: TwoFactorAuth = {
+        id: '2fa-id',
+        userId,
+        secret: 'test-secret',
+        isEnabled: true,
+        user: mockUser,
+      };
+
+      jest
+        .spyOn(twoFactorRepository, 'findOne')
+        .mockResolvedValue(twoFactorAuth);
+      (speakeasy.totp.verify as jest.Mock).mockReturnValue(false);
+
+      await expect(
+        authService.disableTwoFactor(userId, 'invalid-token'),
+      ).rejects.toThrow(new UnauthorizedException('Invalid two-factor token'));
+      expect(twoFactorRepository.delete).not.toHaveBeenCalled();
+    });
+
+    it('should handle database delete error', async () => {
+      const twoFactorAuth: TwoFactorAuth = {
+        id: '2fa-id',
+        userId,
+        secret: 'test-secret',
+        isEnabled: true,
+        user: mockUser,
+      };
+
+      jest
+        .spyOn(twoFactorRepository, 'findOne')
+        .mockResolvedValue(twoFactorAuth);
+      jest
+        .spyOn(twoFactorRepository, 'delete')
+        .mockRejectedValue(new Error('Database error'));
+      (speakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+
+      await expect(
+        authService.disableTwoFactor(userId, validToken),
+      ).rejects.toThrow('Database error');
+    });
+  });
+
   describe('Edge Cases and Error Handling', () => {
+    describe('Two-Factor Authentication Edge Cases', () => {
+      it('should handle QR code generation failure', async () => {
+        const userId = 'user-id';
+        const secret = {
+          base32: 'test-secret-base32',
+          otpauth_url:
+            'otpauth://totp/Test%20App:test@example.com?secret=test-secret',
+        };
+
+        jest.spyOn(userRepository, 'findOne').mockResolvedValue(mockUser);
+        jest.spyOn(twoFactorRepository, 'findOne').mockResolvedValue(null);
+        jest.spyOn(twoFactorRepository, 'create').mockReturnValue({
+          userId,
+          secret: secret.base32,
+          isEnabled: false,
+        } as TwoFactorAuth);
+        jest.spyOn(twoFactorRepository, 'save').mockResolvedValue({
+          userId,
+          secret: secret.base32,
+          isEnabled: false,
+        } as TwoFactorAuth);
+        (speakeasy.generateSecret as jest.Mock).mockReturnValue(secret);
+        (qrcode.toDataURL as jest.Mock).mockRejectedValue(
+          new Error('QR code generation failed'),
+        );
+
+        await expect(authService.setupTwoFactor(userId)).rejects.toThrow(
+          'QR code generation failed',
+        );
+      });
+
+      it('should handle concurrent two-factor setup attempts', async () => {
+        const userId = 'user-id';
+        const secret = {
+          base32: 'test-secret-base32',
+          otpauth_url:
+            'otpauth://totp/Test%20App:test@example.com?secret=test-secret',
+        };
+
+        jest.spyOn(userRepository, 'findOne').mockResolvedValue(mockUser);
+        jest.spyOn(twoFactorRepository, 'findOne').mockResolvedValue(null);
+        jest.spyOn(twoFactorRepository, 'create').mockReturnValue({
+          userId,
+          secret: secret.base32,
+          isEnabled: false,
+        } as TwoFactorAuth);
+
+        // Simulate concurrent save conflict
+        jest
+          .spyOn(twoFactorRepository, 'save')
+          .mockRejectedValue(
+            new Error('Duplicate key value violates unique constraint'),
+          );
+        (speakeasy.generateSecret as jest.Mock).mockReturnValue(secret);
+        (qrcode.toDataURL as jest.Mock).mockResolvedValue(
+          'data:image/png;base64,qrcode',
+        );
+
+        await expect(authService.setupTwoFactor(userId)).rejects.toThrow(
+          'Duplicate key value violates unique constraint',
+        );
+      });
+
+      it('should handle token verification with edge window values', async () => {
+        const twoFactorAuth: TwoFactorAuth = {
+          id: '2fa-id',
+          userId: 'user-id',
+          secret: 'test-secret',
+          isEnabled: false,
+          user: mockUser,
+        };
+
+        jest
+          .spyOn(twoFactorRepository, 'findOne')
+          .mockResolvedValue(twoFactorAuth);
+
+        // Test token at edge of window
+        (speakeasy.totp.verify as jest.Mock).mockImplementation(
+          ({ window }) => {
+            return window === 1; // Only valid with window of 1
+          },
+        );
+
+        jest.spyOn(twoFactorRepository, 'save').mockResolvedValue({
+          ...twoFactorAuth,
+          isEnabled: true,
+        });
+
+        const result = await authService.verifyTwoFactor('user-id', '123456');
+
+        expect(result.message).toBe(
+          'Two-factor authentication enabled successfully',
+        );
+        expect(speakeasy.totp.verify).toHaveBeenCalledWith(
+          expect.objectContaining({ window: 1 }),
+        );
+      });
+    });
+
     describe('Token Generation', () => {
       it('should handle different refresh token expiration formats', async () => {
         const signInDto: SignInDto = {
