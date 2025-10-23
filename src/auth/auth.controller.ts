@@ -31,6 +31,7 @@ import { LogoutDec } from './decorators/logout.decorator';
 import { ForgetPasswordDec } from './decorators/forget-password.decorator';
 import { ResetPasswordDec } from './decorators/reset-passworf.decorator';
 import { VerifyEmailDec } from './decorators/verify-email.decorator';
+import { SetupTwoFactorDec } from './decorators/setup-two-factor.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -118,13 +119,13 @@ export class AuthController {
     return this.authService.verifyEmail(token);
   }
 
-  // ==========================================
+  // =========================================
   // TWO-FACTOR AUTHENTICATION
   // ==========================================
+
   @Post('2fa/setup')
-  @ApiOperation({ summary: 'Setup two-factor authentication' })
+  @SetupTwoFactorDec()
   @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
   async setupTwoFactor(@GetUser() user: User) {
     return this.authService.setupTwoFactor(user.id);
   }
