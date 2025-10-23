@@ -256,9 +256,13 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
 
     // Update user password
-    await this.userRepository.update(passwordReset.userId, {
-      password: hashedPassword,
-    });
+    try {
+      await this.userRepository.update(passwordReset.userId, {
+        password: hashedPassword,
+      });
+    } catch (error) {
+      throw error;
+    }
 
     // Delete used reset token
     await this.passwordResetRepository.delete({ token });
@@ -471,8 +475,11 @@ export class AuthService {
 
     user.emailVerified = true;
     user.emailVerificationToken = null;
-    await this.userRepository.save(user);
-
+    try {
+      await this.userRepository.save(user);
+    } catch (error) {
+      throw error;
+    }
     return { message: 'Email verified successfully' };
   }
 
