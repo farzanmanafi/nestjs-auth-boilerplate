@@ -33,6 +33,8 @@ import { ResetPasswordDec } from './decorators/reset-passworf.decorator';
 import { VerifyEmailDec } from './decorators/verify-email.decorator';
 import { SetupTwoFactorDec } from './decorators/setup-two-factor.decorator';
 import { VerifyTwoFactorDec } from './decorators/verify-two-factor.decorator';
+import { AuthenticateWithTwoFactorDec } from './decorators/authenticate-with-two-factor.decorator';
+import { AuthenticateWithTwoFactorDto } from './dto/authenticate-with-two-factor.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -142,10 +144,8 @@ export class AuthController {
   }
 
   @Post('2fa/authenticate')
-  @ApiOperation({ summary: 'Authenticate with two-factor code' })
-  async authenticateWithTwoFactor(
-    @Body() body: { email: string; password: string; token: string },
-  ) {
+  @AuthenticateWithTwoFactorDec()
+  async authenticateWithTwoFactor(@Body() body: AuthenticateWithTwoFactorDto) {
     return this.authService.authenticateWithTwoFactor(
       body.email,
       body.password,
