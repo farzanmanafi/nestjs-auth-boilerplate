@@ -11,7 +11,7 @@ import { BadRequestDto } from 'src/shared/dto/bad-request.dto';
 export function LogoutDec() {
   return applyDecorators(
     ApiOperation({ summary: 'Log out the currently authenticated user' }),
-    ApiBearerAuth(),
+    ApiBearerAuth('JWT-auth'),
     ApiOkResponse({
       description: 'User logged out successfully.',
       schema: {

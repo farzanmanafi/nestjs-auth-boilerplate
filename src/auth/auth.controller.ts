@@ -32,6 +32,7 @@ import { ForgetPasswordDec } from './decorators/forget-password.decorator';
 import { ResetPasswordDec } from './decorators/reset-passworf.decorator';
 import { VerifyEmailDec } from './decorators/verify-email.decorator';
 import { SetupTwoFactorDec } from './decorators/setup-two-factor.decorator';
+import { VerifyTwoFactorDec } from './decorators/verify-two-factor.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -131,9 +132,8 @@ export class AuthController {
   }
 
   @Post('2fa/verify')
-  @ApiOperation({ summary: 'Verify two-factor authentication setup' })
+  @VerifyTwoFactorDec()
   @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
   async verifyTwoFactor(
     @GetUser() user: User,
     @Body() verifyTwoFactorDto: VerifyTwoFactorDto,
