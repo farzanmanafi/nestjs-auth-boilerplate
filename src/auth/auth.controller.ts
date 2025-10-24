@@ -176,7 +176,7 @@ export class AuthController {
   /**
    * Disable two-factor authentication for a user.
    * @param user - Logged in user.
-   * @param body - Disable two-factor authentication data transfer object.
+   * @param disableTwoFactorDto - Disable two-factor authentication data transfer object.
    * @returns {Promise<{ message: string }>} - Promise resolving when two-factor authentication has been disabled successfully.
    */
   @Post('2fa/disable')
@@ -184,9 +184,12 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   async disableTwoFactor(
     @GetUser() user: User,
-    @Body() body: DisableTwoFactorDto,
+    @Body() disableTwoFactorDto: DisableTwoFactorDto,
   ) {
-    return this.authService.disableTwoFactor(user.id, body.token);
+    return this.authService.disableTwoFactor(
+      user.id,
+      disableTwoFactorDto.token,
+    );
   }
 
   // ==========================================
