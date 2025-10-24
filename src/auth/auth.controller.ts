@@ -35,6 +35,8 @@ import { SetupTwoFactorDec } from './decorators/setup-two-factor.decorator';
 import { VerifyTwoFactorDec } from './decorators/verify-two-factor.decorator';
 import { AuthenticateWithTwoFactorDec } from './decorators/authenticate-with-two-factor.decorator';
 import { AuthenticateWithTwoFactorDto } from './dto/authenticate-with-two-factor.dto';
+import { DisableTwoFactorDto } from './dto/disable-two-factor.dto';
+import { DisableTwoFactorDec } from './decorators/disable-two-factor.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -126,6 +128,11 @@ export class AuthController {
   // TWO-FACTOR AUTHENTICATION
   // ==========================================
 
+  /**
+   * Generates a QR code and secret for setting up two-factor authentication.
+   * User must scan the QR code with an authenticator app.
+   * @returns {Promise<{ qrCode: string, secret: string }>} - Promise resolving with QR code and secret for two-factor authentication setup.
+   */
   @Post('2fa/setup')
   @SetupTwoFactorDec()
   @UseGuards(JwtAuthGuard)
@@ -133,6 +140,12 @@ export class AuthController {
     return this.authService.setupTwoFactor(user.id);
   }
 
+  /**
+   * Verify two-factor authentication setup.
+   * @param user - Logged in user.
+   * @param verifyTwoFactorDto - Verify two-factor authentication data transfer object.
+   * @returns {Promise<{ message: string }>} - Promise resolving with success message if two-factor authentication setup is verified successfully.
+   */
   @Post('2fa/verify')
   @VerifyTwoFactorDec()
   @UseGuards(JwtAuthGuard)
@@ -143,23 +156,35 @@ export class AuthController {
     return this.authService.verifyTwoFactor(user.id, verifyTwoFactorDto.token);
   }
 
+  /**
+   * Authenticate with two-factor authentication.
+   * @param {AuthenticateWithTwoFactorDto} authenticateWithTwoFactorDto - Authenticate with two-factor authentication data transfer object.
+   * @returns {Promise<{ user: UserProfile, tokens: AuthTokens }>} - Promise resolving with user profile and authentication tokens on successful authentication.
+   */
   @Post('2fa/authenticate')
   @AuthenticateWithTwoFactorDec()
-  async authenticateWithTwoFactor(@Body() body: AuthenticateWithTwoFactorDto) {
+  async authenticateWithTwoFactor(
+    @Body() authenticateWithTwoFactorDto: AuthenticateWithTwoFactorDto,
+  ) {
     return this.authService.authenticateWithTwoFactor(
-      body.email,
-      body.password,
-      body.token,
+      authenticateWithTwoFactorDto.email,
+      authenticateWithTwoFactorDto.password,
+      authenticateWithTwoFactorDto.token,
     );
   }
 
+  /**
+   * Disable two-factor authentication for a user.
+   * @param user - Logged in user.
+   * @param body - Disable two-factor authentication data transfer object.
+   * @returns {Promise<{ message: string }>} - Promise resolving when two-factor authentication has been disabled successfully.
+   */
   @Post('2fa/disable')
-  @ApiOperation({ summary: 'Disable two-factor authentication' })
+  @DisableTwoFactorDec()
   @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
   async disableTwoFactor(
     @GetUser() user: User,
-    @Body() body: { token: string },
+    @Body() body: DisableTwoFactorDto,
   ) {
     return this.authService.disableTwoFactor(user.id, body.token);
   }
