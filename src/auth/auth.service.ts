@@ -411,14 +411,31 @@ export class AuthService {
   // ==========================================
   // SSO HANDLERS
   // ==========================================
+
+  /**
+   * Handles a Single Sign On (SSO) callback from the Auth0 provider.
+   * @param profile The user profile from the Auth0 SSO provider.
+   * @returns A promise that resolves to an AuthResponse object.
+   */
   async handleAuth0Callback(profile: SSOProfile): Promise<AuthResponse> {
     return this.handleSSOCallback(profile, 'auth0');
   }
 
+  /**
+   * Handles a Single Sign On (SSO) callback from Google.
+   * @param profile The user profile from the Google SSO provider.
+   * @returns A promise that resolves to an AuthResponse object.
+   */
   async handleGoogleCallback(profile: SSOProfile): Promise<AuthResponse> {
     return this.handleSSOCallback(profile, 'google');
   }
 
+  /**
+   * Handles a Single Sign On (SSO) callback.
+   * @param profile The user profile from the SSO provider.
+   * @param provider The SSO provider (e.g. 'auth0', 'google').
+   * @returns A promise that resolves to an AuthResponse object.
+   */
   private async handleSSOCallback(
     profile: SSOProfile,
     provider: string,
