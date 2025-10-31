@@ -7,8 +7,6 @@ import {
   UseGuards,
   Req,
   Res,
-  HttpCode,
-  HttpStatus,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Response, Request } from 'express';
@@ -37,6 +35,10 @@ import { AuthenticateWithTwoFactorDec } from './decorators/authenticate-with-two
 import { AuthenticateWithTwoFactorDto } from './dto/authenticate-with-two-factor.dto';
 import { DisableTwoFactorDto } from './dto/disable-two-factor.dto';
 import { DisableTwoFactorDec } from './decorators/disable-two-factor.decorator';
+import { Auth0LoginDec } from './decorators/auth0-login.decorator';
+import { Auth0CallbackDec } from './decorators/auth0-callback.decorator';
+import { GoogleLoginDec } from './decorators/google-login.decorator';
+import { GoogleCallbackDec } from './decorators/google-callback.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -196,14 +198,20 @@ export class AuthController {
   // AUTH0 INTEGRATION
   // ==========================================
   @Get('auth0')
-  @ApiOperation({ summary: 'Auth0 login' })
+  @Auth0LoginDec()
   @UseGuards(AuthGuard('auth0'))
   async auth0Login() {
     // Auth0 will handle the redirect
   }
 
+  /**
+   * Handle the Auth0 callback.
+   * @param req - Express request object.
+   * @param res - Express response object.
+   * @returns {Promise<void>} - Promise resolving when the callback has been handled.
+   */
   @Get('auth0/callback')
-  @ApiOperation({ summary: 'Auth0 callback' })
+  @Auth0CallbackDec()
   @UseGuards(AuthGuard('auth0'))
   async auth0Callback(@Req() req: Request, @Res() res: Response) {
     const result = await this.authService.handleAuth0Callback(req.user as any);
@@ -216,14 +224,14 @@ export class AuthController {
   // SSO (Google OAuth)
   // ==========================================
   @Get('google')
-  @ApiOperation({ summary: 'Google OAuth login' })
+  @GoogleLoginDec()
   @UseGuards(AuthGuard('google'))
   async googleLogin() {
     // Google will handle the redirect
   }
 
   @Get('google/callback')
-  @ApiOperation({ summary: 'Google OAuth callback' })
+  @GoogleCallbackDec()
   @UseGuards(AuthGuard('google'))
   async googleCallback(@Req() req: Request, @Res() res: Response) {
     const result = await this.authService.handleGoogleCallback(req.user as any);
