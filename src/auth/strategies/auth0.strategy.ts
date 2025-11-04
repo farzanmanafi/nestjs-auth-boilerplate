@@ -12,8 +12,9 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
       clientID: configService.get('AUTH0_CLIENT_ID'),
       clientSecret: configService.get('AUTH0_CLIENT_SECRET'),
       callbackURL: configService.get('AUTH0_CALLBACK_URL'),
-      scope: 'openid email profile',
+      scope: ['openid', 'email', 'profile'],
       state: false,
+      passReqToCallback: true,
     });
   }
 
@@ -23,25 +24,35 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
     extraParams: any,
     profile: any,
   ): Promise<SSOProfile> {
-    // Auth0 profile structure typically has the data in _json
-    const jsonProfile = profile._json || profile;
+    // ❗ CRITICAL: Log the full profile to see the structure and confirm where the email is located
+    console.log('Auth0 raw profile:', JSON.stringify(profile, null, 2));
 
-    console.log('Auth0 raw profile:', JSON.stringify(profile, null, 2)); // Debug log
+    // 1. Try to extract email from the standard Passport emails array
+    let email = profile.emails?.[0]?.value;
 
+    // 2. If not found, check the _json object (where Auth0 often puts it)
+    if (!email) {
+      email = profile._json?.email;
+    }
+
+    // Extract other required fields
+    const providerId = profile.id || profile._json?.sub;
+    const firstName =
+      profile.name?.givenName ||
+      profile._json?.given_name ||
+      profile._json?.nickname ||
+      '';
+    const lastName =
+      profile.name?.familyName || profile._json?.family_name || '';
+
+    // The SSOProfile MUST have an email field for your AuthService validation to pass
     return {
-      id: profile.id || jsonProfile.sub || jsonProfile.user_id,
-      email:
-        jsonProfile.email ||
-        profile.emails?.[0]?.value ||
-        jsonProfile.email_verified,
-      firstName:
-        jsonProfile.given_name ||
-        profile.name?.givenName ||
-        jsonProfile.nickname ||
-        '',
-      lastName: jsonProfile.family_name || profile.name?.familyName || '',
+      id: providerId,
+      email: email,
+      firstName: firstName,
+      lastName: lastName,
       provider: 'auth0',
-      providerId: profile.id || jsonProfile.sub || jsonProfile.user_id,
+      providerId: providerId,
     };
   }
 }
