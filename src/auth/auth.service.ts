@@ -440,8 +440,15 @@ export class AuthService {
     profile: SSOProfile,
     provider: string,
   ): Promise<AuthResponse> {
-    const email = profile.email;
+    // Add validation
+    if (!profile.email) {
+      console.error('SSO Profile missing email:', profile);
+      throw new BadRequestException(
+        `Email not provided by ${provider} profile`,
+      );
+    }
 
+    const email = profile.email;
     let user = await this.userRepository.findOne({ where: { email } });
 
     if (!user) {
