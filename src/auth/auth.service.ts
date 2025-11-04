@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import * as speakeasy from 'speakeasy';
@@ -45,6 +45,7 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private emailService: EmailService,
+    private dataSource: DataSource,
   ) {}
 
   // ==========================================
@@ -52,51 +53,137 @@ export class AuthService {
   // ==========================================
 
   /**
-   * SignUp a new user.
-   * @param {SignUpDto} signUpDto - SignUp data transfer object.
+   * SignUp a new user with transaction support to ensure data consistency.
+   * If ANY error occurs (validation, email sending, etc.), the user will NOT be created.   * @param {SignUpDto} signUpDto - SignUp data transfer object.
    * @returns {Promise<AuthResponse>} - Promise resolving with AuthResponse object containing user and tokens.
    * @throws {ConflictException} - If user already exists.
    */
   async signUp(signUpDto: SignUpDto): Promise<AuthResponse> {
     const { email, password, firstName, lastName } = signUpDto;
 
-    // Check if user already exists
-    const existingUser = await this.userRepository.findOne({
-      where: { email },
-    });
-    if (existingUser) {
-      throw new ConflictException('User already exists');
+    // Use QueryRunner for transaction control
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // 1. Check if user already exists
+      const existingUser = await queryRunner.manager.findOne(User, {
+        where: { email },
+      });
+
+      if (existingUser) {
+        throw new ConflictException('User already exists');
+      }
+
+      // 2. Validate email format (additional check)
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        throw new BadRequestException('Invalid email format');
+      }
+
+      // 3. Hash password
+      const saltRounds = Number(this.configService.get('BCRYPT_ROUNDS', 12));
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+      // 4. Create user entity
+      const user = queryRunner.manager.create(User, {
+        email,
+        password: hashedPassword,
+        firstName,
+        lastName,
+        emailVerified: false,
+        emailVerificationToken: uuid(),
+      });
+
+      // 5. Save user to database (still in transaction)
+      const savedUser = await queryRunner.manager.save(User, user);
+
+      // 6. Try to send verification email
+      // If this fails, the transaction will rollback and user won't be created
+      try {
+        await this.emailService.sendVerificationEmail(
+          savedUser.email,
+          savedUser.emailVerificationToken,
+        );
+      } catch (emailError) {
+        console.error('Failed to send verification email:', emailError);
+        // Rethrow to trigger transaction rollback
+        throw new BadRequestException(
+          'Failed to send verification email. Please try again.',
+        );
+      }
+
+      // 7. Generate tokens (these are just JWTs, not saved to DB yet)
+      const tokens = await this.generateTokensInTransaction(
+        savedUser,
+        queryRunner,
+      );
+
+      // 8. If everything succeeded, commit the transaction
+      await queryRunner.commitTransaction();
+
+      // 9. Return success response
+      return {
+        user: this.mapUserToProfile(savedUser),
+        tokens,
+      };
+    } catch (error) {
+      // If ANY error occurred, rollback the transaction
+      // This ensures the user is NOT created in the database
+      await queryRunner.rollbackTransaction();
+
+      // Re-throw the error so the controller can handle it
+      throw error;
+    } finally {
+      // Release the query runner
+      await queryRunner.release();
     }
+  }
 
-    // Hash password
-    const saltRounds = Number(this.configService.get('BCRYPT_ROUNDS', 12));
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
+  /**
+   * Generate tokens within a transaction
+   */
+  private async generateTokensInTransaction(
+    user: User,
+    queryRunner: any,
+  ): Promise<AuthTokens> {
+    const payload = { sub: user.id, email: user.email };
+    const accessToken = this.jwtService.sign(payload);
+    const refreshToken = uuid();
 
-    // Create user
-    const user = this.userRepository.create({
-      email,
-      password: hashedPassword,
-      firstName,
-      lastName,
-      emailVerified: false,
-      emailVerificationToken: uuid(),
-    });
-
-    const savedUser = await this.userRepository.save(user);
-
-    // Send verification email
-    await this.emailService.sendVerificationEmail(
-      savedUser.email,
-      savedUser.emailVerificationToken,
+    const refreshExpiresIn = this.configService.get(
+      'jwt.refreshExpiresIn',
+      '7d',
     );
 
-    // Generate tokens
-    const tokens = await this.generateTokens(savedUser);
+    const expiresAt = new Date();
+    const timeValue = parseInt(refreshExpiresIn);
+    const timeUnit = refreshExpiresIn.replace(timeValue.toString(), '');
 
-    return {
-      user: this.mapUserToProfile(savedUser),
-      tokens,
-    };
+    switch (timeUnit) {
+      case 'd':
+        expiresAt.setDate(expiresAt.getDate() + timeValue);
+        break;
+      case 'h':
+        expiresAt.setHours(expiresAt.getHours() + timeValue);
+        break;
+      case 'm':
+        expiresAt.setMinutes(expiresAt.getMinutes() + timeValue);
+        break;
+      default:
+        expiresAt.setDate(expiresAt.getDate() + 7);
+    }
+
+    const refreshTokenEntity = queryRunner.manager.create(RefreshToken, {
+      token: refreshToken,
+      userId: user.id,
+      expiresAt,
+    });
+
+    await queryRunner.manager.save(RefreshToken, refreshTokenEntity);
+
+    return { accessToken, refreshToken };
   }
 
   /**
@@ -225,8 +312,13 @@ export class AuthService {
 
     await this.passwordResetRepository.save(passwordReset);
 
-    // Send reset email
-    await this.emailService.sendPasswordResetEmail(email, resetToken);
+    try {
+      await this.emailService.sendPasswordResetEmail(email, resetToken);
+    } catch (error) {
+      // If email fails, delete the reset token
+      await this.passwordResetRepository.delete({ token: resetToken });
+      throw new BadRequestException('Failed to send reset email');
+    }
 
     return { message: 'If email exists, reset link has been sent' };
   }
