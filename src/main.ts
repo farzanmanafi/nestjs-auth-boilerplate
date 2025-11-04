@@ -18,20 +18,6 @@ async function bootstrap() {
       disableErrorMessages: configService.get('NODE_ENV') === 'production',
     }),
   );
-
-  app.setGlobalPrefix('api/v1', {
-    exclude: ['/', 'health', 'status'],
-  });
-  app.setGlobalPrefix('api/v1', {
-    exclude: [
-      '/',
-      'health',
-      'status',
-      // Exclude all auth routes so they stay under /auth/...
-      { path: 'auth', method: RequestMethod.ALL },
-    ],
-  });
-
   // CORS
   app.enableCors({
     origin: [
@@ -51,12 +37,14 @@ async function bootstrap() {
 
   // Swagger documentation
   if (configService.get('NODE_ENV') !== 'production') {
+    const apiPrefix = 'api/v1';
     const config = new DocumentBuilder()
       .setTitle('NestJS Auth Boilerplate')
       .setDescription(
         'Complete authentication API with JWT, 2FA, SSO, and more',
       )
       .setVersion('1.0.0')
+      .setBasePath(apiPrefix)
       .addBearerAuth(
         {
           type: 'http',
