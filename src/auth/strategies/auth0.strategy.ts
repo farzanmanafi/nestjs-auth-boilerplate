@@ -14,17 +14,35 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
       clientSecret: configService.get('AUTH0_CLIENT_SECRET'),
       callbackURL: configService.get('AUTH0_CALLBACK_URL'),
       scope: 'openid email profile',
+      state: false,
     });
   }
 
-  async validate(accessToken: string, refreshToken: string, extraParams: any, profile: any): Promise<SSOProfile> {
-  return {
-    id: profile.id,
-    email: profile.emails?.[0]?.value || profile.email,
-    firstName: profile.name?.givenName || profile.given_name || '',
-    lastName: profile.name?.familyName || profile.family_name || '',
-    provider: 'auth0',
-    providerId: profile.id,
-  };
-}
+  async validate(
+    accessToken: string,
+    refreshToken: string,
+    extraParams: any,
+    profile: any,
+  ): Promise<SSOProfile> {
+    // Auth0 profile structure typically has the data in _json
+    const jsonProfile = profile._json || profile;
+
+    console.log('Auth0 raw profile:', JSON.stringify(profile, null, 2)); // Debug log
+
+    return {
+      id: profile.id || jsonProfile.sub || jsonProfile.user_id,
+      email:
+        jsonProfile.email ||
+        profile.emails?.[0]?.value ||
+        jsonProfile.email_verified,
+      firstName:
+        jsonProfile.given_name ||
+        profile.name?.givenName ||
+        jsonProfile.nickname ||
+        '',
+      lastName: jsonProfile.family_name || profile.name?.familyName || '',
+      provider: 'auth0',
+      providerId: profile.id || jsonProfile.sub || jsonProfile.user_id,
+    };
+  }
 }
