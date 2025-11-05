@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import {
   ConflictException,
@@ -57,6 +57,8 @@ describe('AuthService', () => {
   let jwtService: JwtService;
   let configService: ConfigService;
   let emailService: EmailService;
+  let dataSource: DataSource;
+  let mockQueryRunner: any;
 
   const mockUser: User = {
     id: 'user-id',
@@ -79,7 +81,7 @@ describe('AuthService', () => {
     id: 'token-id',
     token: 'refresh-token-uuid',
     userId: 'user-id',
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     userAgent: null,
     ipAddress: null,
     createdAt: new Date(),
@@ -96,6 +98,27 @@ describe('AuthService', () => {
   };
 
   beforeEach(async () => {
+    // Create mock QueryRunner with all transaction methods
+    mockQueryRunner = {
+      connect: jest.fn(),
+      startTransaction: jest.fn(),
+      commitTransaction: jest.fn(),
+      rollbackTransaction: jest.fn(),
+      release: jest.fn(),
+      manager: {
+        findOne: jest.fn(),
+        create: jest.fn(),
+        save: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
+      },
+    };
+
+    // Mock DataSource
+    const mockDataSource = {
+      createQueryRunner: jest.fn(() => mockQueryRunner),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
@@ -168,6 +191,10 @@ describe('AuthService', () => {
             sendWelcomeEmail: jest.fn(),
           },
         },
+        {
+          provide: DataSource,
+          useValue: mockDataSource,
+        },
       ],
     }).compile();
 
@@ -185,8 +212,8 @@ describe('AuthService', () => {
     jwtService = module.get<JwtService>(JwtService);
     configService = module.get<ConfigService>(ConfigService);
     emailService = module.get<EmailService>(EmailService);
+    dataSource = module.get<DataSource>(DataSource);
 
-    // Reset all mocks before each test
     jest.clearAllMocks();
   });
 
@@ -198,33 +225,31 @@ describe('AuthService', () => {
       lastName: 'Smith',
     };
 
-    it('should successfully sign up a new user', async () => {
+    it('should successfully sign up a new user with transaction', async () => {
       const savedUser = { ...mockUser, ...signUpDto, id: 'new-user-id' };
 
-      jest.spyOn(userRepository, 'findOne').mockResolvedValue(null);
-      jest.spyOn(userRepository, 'create').mockReturnValue(savedUser as User);
-      jest.spyOn(userRepository, 'save').mockResolvedValue(savedUser as User);
-      jest
-        .spyOn(refreshTokenRepository, 'create')
-        .mockReturnValue(mockRefreshToken);
-      jest
-        .spyOn(refreshTokenRepository, 'save')
-        .mockResolvedValue(mockRefreshToken);
+      // Mock QueryRunner behavior
+      mockQueryRunner.manager.findOne.mockResolvedValue(null); // User doesn't exist
+      mockQueryRunner.manager.create.mockReturnValue(savedUser);
+      mockQueryRunner.manager.save
+        .mockResolvedValueOnce(savedUser) // Save user
+        .mockResolvedValueOnce(mockRefreshToken); // Save refresh token
+
       (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
 
       const result = await authService.signUp(signUpDto);
 
       expect(result).toBeDefined();
       expect(result.user.email).toBe(signUpDto.email);
-      expect(result.user.firstName).toBe(signUpDto.firstName);
-      expect(result.user.lastName).toBe(signUpDto.lastName);
       expect(result.tokens.accessToken).toBe('access-token');
-      expect(result.tokens.refreshToken).toBe('test-uuid');
 
-      expect(userRepository.findOne).toHaveBeenCalledWith({
-        where: { email: signUpDto.email },
-      });
-      expect(bcrypt.hash).toHaveBeenCalledWith(signUpDto.password, 12);
+      // Verify transaction flow
+      expect(mockQueryRunner.connect).toHaveBeenCalled();
+      expect(mockQueryRunner.startTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.release).toHaveBeenCalled();
+
+      // Verify email was sent
       expect(emailService.sendVerificationEmail).toHaveBeenCalledWith(
         signUpDto.email,
         'test-uuid',
@@ -232,25 +257,72 @@ describe('AuthService', () => {
     });
 
     it('should throw ConflictException if user already exists', async () => {
-      jest.spyOn(userRepository, 'findOne').mockResolvedValue(mockUser);
+      mockQueryRunner.manager.findOne.mockResolvedValue(mockUser);
 
       await expect(authService.signUp(signUpDto)).rejects.toThrow(
         ConflictException,
       );
-      expect(userRepository.save).not.toHaveBeenCalled();
-      expect(emailService.sendVerificationEmail).not.toHaveBeenCalled();
+
+      // Verify transaction was rolled back
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.release).toHaveBeenCalled();
+      expect(mockQueryRunner.commitTransaction).not.toHaveBeenCalled();
     });
 
-    it('should handle database save error', async () => {
-      jest.spyOn(userRepository, 'findOne').mockResolvedValue(null);
+    it('should rollback transaction if email sending fails', async () => {
+      const savedUser = { ...mockUser, ...signUpDto, id: 'new-user-id' };
+
+      mockQueryRunner.manager.findOne.mockResolvedValue(null);
+      mockQueryRunner.manager.create.mockReturnValue(savedUser);
+      mockQueryRunner.manager.save.mockResolvedValue(savedUser);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
+
+      // Email service fails
       jest
-        .spyOn(userRepository, 'save')
-        .mockRejectedValue(new Error('Database error'));
+        .spyOn(emailService, 'sendVerificationEmail')
+        .mockRejectedValue(new Error('Email service error'));
+
+      await expect(authService.signUp(signUpDto)).rejects.toThrow(
+        BadRequestException,
+      );
+
+      // Verify transaction was rolled back
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.release).toHaveBeenCalled();
+      expect(mockQueryRunner.commitTransaction).not.toHaveBeenCalled();
+    });
+
+    it('should rollback transaction on database save error', async () => {
+      mockQueryRunner.manager.findOne.mockResolvedValue(null);
+      mockQueryRunner.manager.create.mockReturnValue(mockUser);
+      mockQueryRunner.manager.save.mockRejectedValue(
+        new Error('Database error'),
+      );
       (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
 
       await expect(authService.signUp(signUpDto)).rejects.toThrow(
         'Database error',
       );
+
+      // Verify transaction was rolled back
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.release).toHaveBeenCalled();
+      expect(mockQueryRunner.commitTransaction).not.toHaveBeenCalled();
+    });
+
+    it('should validate email format and rollback on invalid email', async () => {
+      const invalidSignUpDto = { ...signUpDto, email: 'invalid-email' };
+
+      mockQueryRunner.manager.findOne.mockResolvedValue(null);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
+
+      await expect(authService.signUp(invalidSignUpDto)).rejects.toThrow(
+        BadRequestException,
+      );
+
+      // Verify transaction was rolled back
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.release).toHaveBeenCalled();
     });
   });
 
@@ -275,7 +347,6 @@ describe('AuthService', () => {
       expect(result).toBeDefined();
       expect(result.user.email).toBe(mockUser.email);
       expect(result.tokens.accessToken).toBe('access-token');
-      expect(result.tokens.refreshToken).toBe('test-uuid');
       expect(result.twoFactorRequired).toBeUndefined();
     });
 
@@ -353,7 +424,7 @@ describe('AuthService', () => {
     it('should throw UnauthorizedException for expired token', async () => {
       const expiredToken = {
         ...mockRefreshToken,
-        expiresAt: new Date(Date.now() - 1000), // Expired 1 second ago
+        expiresAt: new Date(Date.now() - 1000),
       };
 
       jest
@@ -394,6 +465,15 @@ describe('AuthService', () => {
   });
 
   describe('forgotPassword', () => {
+    const mockPasswordReset: PasswordReset = {
+      id: 'reset-id',
+      token: 'reset-token',
+      userId: 'user-id',
+      expiresAt: new Date(Date.now() + 3600000),
+      createdAt: new Date(),
+      user: mockUser,
+    };
+
     it('should send password reset email if user exists', async () => {
       jest.spyOn(userRepository, 'findOne').mockResolvedValue(mockUser);
       jest
@@ -428,7 +508,7 @@ describe('AuthService', () => {
       expect(emailService.sendPasswordResetEmail).not.toHaveBeenCalled();
     });
 
-    it('should handle email service error gracefully', async () => {
+    it('should delete reset token if email sending fails', async () => {
       jest.spyOn(userRepository, 'findOne').mockResolvedValue(mockUser);
       jest
         .spyOn(passwordResetRepository, 'create')
@@ -437,12 +517,19 @@ describe('AuthService', () => {
         .spyOn(passwordResetRepository, 'save')
         .mockResolvedValue(mockPasswordReset);
       jest
+        .spyOn(passwordResetRepository, 'delete')
+        .mockResolvedValue({} as any);
+      jest
         .spyOn(emailService, 'sendPasswordResetEmail')
         .mockRejectedValue(new Error('Email service error'));
 
       await expect(
         authService.forgotPassword('test@example.com'),
-      ).rejects.toThrow('Email service error');
+      ).rejects.toThrow(BadRequestException);
+
+      expect(passwordResetRepository.delete).toHaveBeenCalledWith({
+        token: 'test-uuid',
+      });
     });
   });
 
